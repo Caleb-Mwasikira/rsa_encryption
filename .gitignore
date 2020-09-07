@@ -1,0 +1,4 @@
+.idea
+encryption.env
+private_key.pem
+venv
