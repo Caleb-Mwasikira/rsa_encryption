@@ -5,62 +5,64 @@ from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
 from Crypto.Signature import pkcs1_15
 from Crypto.Cipher import PKCS1_OAEP
-from pathlib import Path
-from dotenv import load_dotenv
-import os
 
 
-class Encryptor:
+class RSAEncryption:
     def __init__(self):
         self.private_key = None
         self.public_key = None
 
-
-    def genKeys(self):
-        """Generating new private and public key pair"""
+    @staticmethod
+    def genKeys():
         print(f"[+] Generating new pair of private and public keys")
-        self.private_key = RSA.generate(2048)
-        self.public_key = self.private_key.publickey()
-        return self.private_key, self.public_key
-
+        BITS = 2048
+        private_key = RSA.generate(BITS)
+        public_key = private_key.publickey()
+        return private_key, public_key
 
     @staticmethod
-    def pemSaveKey(key, key_file_path, pass_phrase):
-        """Saving an encrypted key onto a .pem file"""
+    def pemSaveKey(key, key_file_path, password):
+        """Storing an encrypted key onto a .pem file"""
+
         with open(key_file_path, "wb") as f:
-            f.write(key.export_key(format="PEM", passphrase=pass_phrase, pkcs=8))
+            f.write(key.export_key(format="PEM", passphrase=password, pkcs=8))
         print(f"[+] Key successfully saved on file {key_file_path}")
 
-    def pemLoadKey(self, key_file_path, pass_phrase):
-        """Importing An Encrypted Key From A File"""
+    def pemLoadKey(self, key_file_path, password):
+        """Loading an encrypted key from a .pem file"""
         try:
+            print(f"[*] Loading key from file {key_file_path}")
+
             with open(key_file_path, "rb") as f:
                 data = f.read()
-                key = RSA.import_key(data, passphrase=pass_phrase)
-            print(f"[+] Key successfully imported from file")
+                key = RSA.import_key(data, passphrase=password)
+
             if key.has_private():
                 self.private_key = key
                 self.public_key = self.private_key.publickey()
             else:
                 self.public_key = key
-            return True
+
+            print(f"[+] Key successfully imported from file")
+            return key
 
         except ValueError as error:
-            print(f"[-] Error : {error}. Check your password and try again")
+            print(f"[-] Error: {error}")
             return False
 
         except FileNotFoundError as error:
             print(f"[-] Error : {error}")
             return False
 
-    def signMsg(self, message):
+    @staticmethod
+    def signMsg(msg, private_key):
         """Signs a message with the private key"""
 
         # Instantiate a new signer object using the senders private key
-        signer = pkcs1_15.new(self.private_key)
+        signer = pkcs1_15.new(private_key)
 
         # Instantiate a hasher object
-        hasher = SHA256.new(message)
+        hasher = SHA256.new(msg)
 
         # Sign the message
         signature = signer.sign(hasher)
@@ -69,18 +71,16 @@ class Encryptor:
         return signature
 
     @staticmethod
-    def verifySignedMsg(public_key, signature, message):
+    def verifySignedMsg(msg, signature, public_key):
         """Verifies a signature to see if the message is authentic"""
-        # Instantiate a new verifier object; using the senders public key to verify their messages
-        verifier = pkcs1_15.new(public_key)
-
-        # Instantiate a hasher object
-        hasher = SHA256.new(message)
-
-        # Verify The Message; using the hasher object and the signature received
         try:
             print(f"[*] Verifying message authenticity")
+            # Instantiate a new verifier object using the senders public key
+            verifier = pkcs1_15.new(public_key)
+            hasher = SHA256.new(msg)
+
             verifier.verify(hasher, signature)
+            print(type(public_key))
             print(f"[+] Message authenticated successfully")
             return True
 
@@ -90,75 +90,68 @@ class Encryptor:
 
     @staticmethod
     def hashPassword(password):
-        # Instantiate a hasher object
         if type(password) != bytes:
-            password = password.encode()
+            password = password.encode("utf-8")
 
         hasher = SHA256.new(password)
         password_hash = hasher.digest()
         return password_hash
 
     @staticmethod
-    def encryptMsg(message, key):
-        if type(message) != bytes:
-            msg = message.encode("utf-8")
-        else:
-            msg = message
-
+    def encryptMsg(plain_text, public_key):
         try:
-            if key.has_private():
-                raise AttributeError("[-] Invalid key parameter. Encryption key must be a public key.")
-
             print(f"[*] Encrypting message")
-            cipher = PKCS1_OAEP.new(key)
-            encrypted_msg = cipher.encrypt(msg)
-            return encrypted_msg
+            if type(plain_text) != bytes:
+                plain_text = plain_text.encode("utf-8")
 
-        except AttributeError as error:
-            print("[-] Invalid key parameter. Encryption key must be a public key.")
-            return
+            cipher = PKCS1_OAEP.new(public_key)
+            cipher_text = cipher.encrypt(plain_text)
+            print(f"[+] Message encrypted successfully")
+            return cipher_text
 
-    def decryptMsg(self, encrypted_message):
+        except AttributeError as err:
+            print(f"[-] Error: {err}")
+            return False
+
+    @staticmethod
+    def decryptMsg(cipher_text, private_key):
         try:
-            if type(encrypted_message) != bytes:
-                raise ValueError("[-] Invalid message format. Message must be in bytes format")
-            else:
-                encrypted_msg = encrypted_message
-
             print(f"[*] Decrypting message")
-            cipher = PKCS1_OAEP.new(self.private_key)
-            decrypted_msg = cipher.decrypt(encrypted_msg)
-            return decrypted_msg
+            cipher = PKCS1_OAEP.new(private_key)
+            plain_text = cipher.decrypt(cipher_text)
+            return plain_text
 
         except ValueError as error:
-            print(f"[-] Something went wrong.\n"
-                  f"\tThe data being decrypted may be corrupted or you may be using the wrong key for decryption")
+            print(f"[-] Error: {error}")
+            return False
 
-
-def loadEnvVars(env_path='encryption.env'):
-    env_path = Path(env_path)
-    load_dotenv(dotenv_path= env_path)
 
 def Main():
-    loadEnvVars()
-    PRIVATE_KEY_FILE = os.getenv('PRIVATE_KEY_FILE')
-    PASSWORD = os.getenv('PASSWORD')
+    message = b"My deep dark secrets"
 
-    encryptor = Encryptor()
-    if encryptor.pemLoadKey(key_file_path=PRIVATE_KEY_FILE, pass_phrase=PASSWORD):
-        private_key = encryptor.private_key
-        public_key = encryptor.public_key
+    private_key_file = "./keys/private_key.pem"
+    public_key_file = "./keys/public_key.pem"
+    password = "Sixteen byte keys"
+
+    rsa_encryptor = RSAEncryption()
+    private_key = rsa_encryptor.pemLoadKey(private_key_file, password)
+
+    if private_key:
+        public_key = rsa_encryptor.public_key
     else:
-        private_key, public_key = encryptor.genKeys()
-        encryptor.pemSaveKey(key=private_key, key_file_path=PRIVATE_KEY_FILE, pass_phrase=PASSWORD)
+        private_key, public_key = rsa_encryptor.genKeys()
+        rsa_encryptor.pemSaveKey(private_key, private_key_file, password)
+        rsa_encryptor.pemSaveKey(public_key, public_key_file, password)
 
-    encrypted_msg = encryptor.encryptMsg(message, public_key)
-    print(encrypted_msg)
-    decrypted_msg = encryptor.decryptMsg(encrypted_msg)
-    print(decrypted_msg)
+    cipher_text = rsa_encryptor.encryptMsg(message, public_key)
+    print(cipher_text)
+
+    plain_text = rsa_encryptor.decryptMsg(cipher_text, private_key)
+    print(plain_text)
+
+    sig = rsa_encryptor.signMsg(message, private_key)
+    rsa_encryptor.verifySignedMsg(message, sig, public_key)
 
 
 if __name__ == "__main__":
-    message = b"My deep dark secrets"
-
     Main()
